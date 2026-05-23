@@ -9,10 +9,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = login(email, password);
+    const success = await login(email, password);
     if (success) {
       navigate('/');
     } else {

@@ -1,20 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useAdverts } from '../context/AdvertsContext';
 import AdvertCard from '../components/AdvertCard';
 import { CATEGORIES } from '../src/types';
 
 export default function HomePage() {
-  const { adverts } = useAdverts();
+  const { adverts, refreshAdverts } = useAdverts();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
 
-  const filtered = useMemo(() => {
-    return adverts.filter((advert) => {
-      const matchesSearch = advert.title.toLowerCase().includes(search.toLowerCase());
-      const matchesCategory = selectedCategory ? advert.category === selectedCategory : true;
-      return matchesSearch && matchesCategory;
-    });
-  }, [adverts, search, selectedCategory]);
+  useEffect(() => {
+    refreshAdverts(search, selectedCategory);
+  }, [search, selectedCategory, refreshAdverts]);
 
   return (
     <div className="home-page">
@@ -40,11 +36,11 @@ export default function HomePage() {
         </select>
       </div>
 
-      {filtered.length === 0 ? (
+      {adverts.length === 0 ? (
         <p className="empty-message">Ничего не найдено. Создайте первое объявление!</p>
       ) : (
         <div className="adverts-grid">
-          {filtered.map((advert) => (
+          {adverts.map((advert) => (
             <AdvertCard key={advert.id} advert={advert} />
           ))}
         </div>

@@ -10,10 +10,10 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = register(name, email, password);
+    const success = await register(name, email, password);
     if (success) {
       navigate('/');
     } else {

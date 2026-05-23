@@ -1,121 +1,127 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, UserSettings } from '../src/types';
+import API_URL from '../src/api';
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => boolean;
-  register: (name: string, email: string, password: string) => boolean;
+  token: string | null;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  updateProfile: (data: Partial<User>) => void;
+  updateProfile: (data: Partial<User>) => Promise<void>;
   settings: UserSettings;
-  updateSettings: (newSettings: Partial<UserSettings>) => void;
+  updateSettings: (newSettings: Partial<UserSettings>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-// Имитация базы пользователей в localStorage под ключом "users"
-const USERS_KEY = 'adverts_users';
-const CURRENT_USER_KEY = 'adverts_current_user';
-const SETTINGS_KEY = 'adverts_settings';
-
-function getUsers(): Record<string, { id: string; name: string; email: string; password: string; avatarUrl: string }> {
-  const raw = localStorage.getItem(USERS_KEY);
-  return raw ? JSON.parse(raw) : {};
-}
-
-function saveUsers(users: Record<string, any>) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [settings, setSettings] = useState<UserSettings>(() => {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? JSON.parse(raw) : { darkTheme: false, notifications: true };
-  });
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [settings, setSettings] = useState<UserSettings>({ darkTheme: false, notifications: true });
 
-  // При монтировании проверяем, сохранён ли текущий пользователь
-  useEffect(() => {
-    const saved = localStorage.getItem(CURRENT_USER_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setUser(parsed);
-      } catch {
-        localStorage.removeItem(CURRENT_USER_KEY);
-      }
-    }
-  }, []);
-
-  // Применяем тёмную тему глобально
+  // Применяем тёмную тему
   useEffect(() => {
     document.body.classList.toggle('dark-theme', settings.darkTheme);
   }, [settings.darkTheme]);
 
-  const login = (email: string, password: string): boolean => {
-    const users = getUsers();
-    const found = Object.values(users).find(u => u.email === email && u.password === password);
-    if (!found) return false;
-    const userData: User = {
-      id: found.id,
-      name: found.name,
-      email: found.email,
-      avatarUrl: found.avatarUrl || '',
-    };
-    setUser(userData);
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+  // При старте пробуем загрузить профиль по токену
+  useEffect(() => {
+    if (token) {
+      fetch(`${API_URL}/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => {
+          setUser({ id: data.id, name: data.name, email: data.email, avatarUrl: data.avatarUrl });
+          setSettings(data.settings);
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          setToken(null);
+        });
+    }
+  }, [token]);
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    const res = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    localStorage.setItem('token', data.token);
+    setToken(data.token);
+    setUser({ id: data.user.id, name: data.user.name, email: data.user.email, avatarUrl: data.user.avatarUrl });
+    setSettings(data.user.settings);
     return true;
   };
 
-  const register = (name: string, email: string, password: string): boolean => {
-    const users = getUsers();
-    if (Object.values(users).some(u => u.email === email)) return false;
-    const id = Date.now().toString();
-    const newUser = { id, name, email, password, avatarUrl: '' };
-    users[id] = newUser;
-    saveUsers(users);
-    // Автоматически входим после регистрации
-    const userData: User = { id, name, email, avatarUrl: '' };
-    setUser(userData);
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+  const register = async (name: string, email: string, password: string): Promise<boolean> => {
+    const res = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password })
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    localStorage.setItem('token', data.token);
+    setToken(data.token);
+    setUser({ id: data.user.id, name: data.user.name, email: data.user.email, avatarUrl: data.user.avatarUrl });
+    setSettings(data.user.settings);
     return true;
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
     setUser(null);
-    localStorage.removeItem(CURRENT_USER_KEY);
   };
 
-  const updateProfile = (data: Partial<User>) => {
-    if (!user) return;
-    const updated = { ...user, ...data };
-    setUser(updated);
-    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(updated));
-    // Также обновляем в базе пользователей
-    const users = getUsers();
-    if (users[user.id]) {
-      users[user.id] = { ...users[user.id], name: updated.name, email: updated.email, avatarUrl: updated.avatarUrl };
-      saveUsers(users);
+  const updateProfile = async (data: Partial<User>) => {
+    const res = await fetch(`${API_URL}/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setUser({ id: updated.id, name: updated.name, email: updated.email, avatarUrl: updated.avatarUrl });
     }
   };
 
-  const updateSettings = (newSettings: Partial<UserSettings>) => {
-    const updated = { ...settings, ...newSettings };
-    setSettings(updated);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+  const updateSettings = async (newSettings: Partial<UserSettings>) => {
+    const updatedSettings = { ...settings, ...newSettings };
+    const res = await fetch(`${API_URL}/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ settings: updatedSettings })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setSettings(data.settings);
+    }
   };
 
   return (
     <AuthContext.Provider value={{
       user,
       isAuthenticated: !!user,
+      token,
       login,
       register,
       logout,
       updateProfile,
       settings,
-      updateSettings,
+      updateSettings
     }}>
       {children}
     </AuthContext.Provider>
